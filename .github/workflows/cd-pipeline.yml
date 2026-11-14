@@ -1,0 +1,67 @@
+name: Playwright Continuous Delivery
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # Stage 1: Deploy to Staging
+  deploy-staging:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v7
+      - name: Deploy application to Staging
+        run: |
+          echo "Deploying app to ${{ vars.BASE_URL }}..."
+          # Add your staging deployment CLI commands here
+
+  # Stage 2: Run Playwright TypeScript Suite on Staging
+  playwright-e2e:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npm run typecheck
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Run Playwright tests
+        run: npm run test:e2e
+        env:
+          BASE_URL: ${{ vars.BASE_URL }}
+          TEST_USER: ${{ secrets.TEST_USER }}
+          TEST_PASS: ${{ secrets.TEST_PASS }}
+
+      - name: Upload Playwright HTML Report
+        uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-staging
+          path: playwright-report/
+          retention-days: 30
+
+  # Stage 3: Gate Production Release
+  deploy-production:
+    needs: playwright-e2e
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+      - name: Promote build to Production
+        run: |
+          echo "Tests passed! Deploying to ${{ vars.BASE_URL }}..."
+          # Add your production deployment CLI commands here
